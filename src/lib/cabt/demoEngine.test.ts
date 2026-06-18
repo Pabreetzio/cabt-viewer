@@ -392,6 +392,82 @@ describe('cabtObservationToGameView', () => {
     ]);
   });
 
+  it('resolves non-prize card prompts from visible deck snapshots when CABT reports prize area', () => {
+    const dataMaps: CabtDataMaps = {
+      cardData: {
+        3: {
+          cardId: 3,
+          name: 'Basic {W} Energy',
+          cardType: CabtCardType.BASIC_ENERGY,
+          energyType: 3,
+          set: 'SVE',
+          setNumber: '3',
+        },
+        723: {
+          cardId: 723,
+          name: 'Mega Abomasnow ex',
+          cardType: CabtCardType.POKEMON,
+          set: 'MEG',
+          setNumber: '36',
+          hp: 350,
+          stage1: true,
+        },
+      },
+      attacks: {},
+    };
+    const observation = {
+      select: {
+        type: CabtSelectType.CARD,
+        context: CabtSelectContext.TO_HAND,
+        minCount: 1,
+        maxCount: 1,
+        remainDamageCounter: 0,
+        remainEnergyCost: 0,
+        option: [
+          { type: CabtOptionType.CARD, area: CabtAreaType.PRIZE, index: 0, playerIndex: 0 },
+          { type: CabtOptionType.CARD, area: CabtAreaType.PRIZE, index: 1, playerIndex: 0 },
+        ],
+        deck: null,
+        contextCard: null,
+        effect: null,
+      },
+      logs: [],
+      current: {
+        turn: 3,
+        turnActionCount: 0,
+        yourIndex: 0,
+        firstPlayer: 0,
+        supporterPlayed: false,
+        stadiumPlayed: false,
+        energyAttached: true,
+        retreated: false,
+        result: -1,
+        stadium: [],
+        looking: null,
+        players: [
+          {
+            ...player(),
+            prize: [null, null],
+            deck: [
+              { id: 3, serial: 20, playerIndex: 0 },
+              { id: 723, serial: 21, playerIndex: 0 },
+            ],
+          },
+          player(),
+        ],
+      },
+    } satisfies CabtObservation;
+
+    const view = cabtObservationToGameView(observation, [], dataMaps);
+    const prompt = view.prompts[0];
+
+    expect(prompt?.className).toBe('ChooseCardsPrompt');
+    expect(prompt?.fields.cardList).toEqual([
+      expect.objectContaining({ index: 0, name: 'Basic {W} Energy', imageUrl: expect.any(String) }),
+      expect.objectContaining({ index: 1, name: 'Mega Abomasnow ex', imageUrl: expect.any(String) }),
+    ]);
+  });
+
   it('labels CABT draw-count prompts with numeric choices', () => {
     const observation = {
       select: {

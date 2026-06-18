@@ -806,7 +806,9 @@ function cardForOption(option: CabtOption, observation: CabtObservation, optionI
   if (area === CabtAreaType.DISCARD) return player.discard[index] ?? null;
   if (area === CabtAreaType.ACTIVE) return attachedCardForOption(player.active[index], option) ?? player.active[index] ?? null;
   if (area === CabtAreaType.BENCH) return attachedCardForOption(player.bench[index], option) ?? player.bench[index] ?? null;
-  if (area === CabtAreaType.PRIZE) return player.prize[index] ?? null;
+  if (area === CabtAreaType.PRIZE) {
+    return player.prize[index] ?? deckCardForOption(player, select, option, optionIndex) ?? null;
+  }
   return null;
 }
 
@@ -821,6 +823,22 @@ function attachedCardForOption(pokemonCard: CabtPokemon | null | undefined, opti
     return pokemonCard.tools[option.toolIndex] ?? null;
   }
   return null;
+}
+
+function deckCardForOption(
+  player: NonNullable<CabtObservation['current']>['players'][number],
+  select: CabtObservation['select'],
+  option: CabtOption,
+  optionIndex?: number,
+) {
+  if (select?.context === CabtSelectContext.TO_PRIZE) {
+    return null;
+  }
+  const index = option.index ?? optionIndex;
+  if (index === undefined || index === null) {
+    return null;
+  }
+  return player.deck?.[index] ?? null;
 }
 
 function cabtSelectLabel(context: number) {
