@@ -18,8 +18,8 @@ These rules apply to `cabt-viewer`.
   Do not add new prompt-field `as any` outside that module.
 - Keep leaf components presentational by default. Store imports belong in
   explicit container components.
-- Keep Kaggle-provided native engine files and private agents out of this repo.
-  Use `CABT_SAMPLE_SUBMISSION_DIR` for local engine resources.
+- Keep Kaggle-provided native engine files out of this repo. Use
+  `CABT_SAMPLE_SUBMISSION_DIR` for local engine resources.
 
 ## Verification
 

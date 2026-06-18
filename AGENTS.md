@@ -73,7 +73,6 @@ often enough.
 
 ## Public Boundary
 
-Do not add private agents, strategy notes, Kaggle native binaries, raw
-competition bundles, or generated private match artifacts to this repo. Local
-CABT play should consume user-supplied resources through
-`CABT_SAMPLE_SUBMISSION_DIR`.
+Do not add Kaggle native binaries, raw competition bundles, or generated local
+match artifacts to this repo. Local CABT play should consume user-supplied
+resources through `CABT_SAMPLE_SUBMISSION_DIR`.

@@ -21,13 +21,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--card-csv",
         type=Path,
-        default=ROOT.parent / "agent-lab" / "data" / "EN_Card_Data.csv",
+        default=ROOT / "data" / "EN_Card_Data.csv",
         help="Path to EN_Card_Data.csv.",
     )
     parser.add_argument(
         "--sample-submission",
         type=Path,
-        default=ROOT.parent / "agent-lab" / "official" / "sample_submission",
+        default=ROOT / "sample_submission",
         help="Path to the Kaggle sample_submission directory containing cg/.",
     )
     parser.add_argument(

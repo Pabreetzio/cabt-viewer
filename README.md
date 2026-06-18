@@ -6,7 +6,7 @@ Pokemon TCG AI Battle Challenge.
 This repo contains the viewer, replay support, generated card metadata, and a
 thin optional local engine bridge. It also includes public sample agents adapted
 from Kaggle-provided examples. It does not include Kaggle's native CABT engine
-files, raw card CSV, private agents, or strategy notes.
+files or raw card CSV.
 
 ![CABT Viewer replay preview](public/preview.png)
 
@@ -30,9 +30,8 @@ npm run dev:web
 
 Open `http://localhost:5173/?view=replay`.
 
-The app loads generated sample replay fixtures from `public/game-logs`. These
-fixtures are for viewer testing and do not contain private agent strategy. You
-can also pass a replay URL:
+The app loads generated sample replay fixtures from `public/game-logs`. You can
+also pass a replay URL:
 
 ```text
 http://localhost:5173/?view=replay&replayUrl=https://example.com/cabt-replay.json
@@ -98,8 +97,14 @@ replay mode without starting the native CABT engine.
 Most users do not need to regenerate it. Maintainers can refresh it from the
 Kaggle-provided card CSV and sample submission.
 
-From this workspace layout, where `agent-lab` is a sibling of `cabt-viewer`,
-use Docker on macOS:
+By default, the generator expects these local, ignored paths inside this repo:
+
+```text
+data/EN_Card_Data.csv
+sample_submission/
+```
+
+Use Docker on macOS:
 
 ```bash
 npm run generate:cabt-data:docker
@@ -112,13 +117,6 @@ directly, you can run:
 npm run generate:cabt-data
 ```
 
-The default paths assume this local workspace layout:
-
-```text
-../agent-lab/data/EN_Card_Data.csv
-../agent-lab/official/sample_submission
-```
-
 You can override those paths:
 
 ```bash
@@ -127,9 +125,8 @@ npm run generate:cabt-data -- \
   --sample-submission /absolute/path/to/sample_submission
 ```
 
-The Docker helper intentionally mounts the parent workspace. For arbitrary
-external paths, either run the native command on Linux or adapt the Docker mount
-paths.
+The Docker helper mounts this repo at `/workspace`. For arbitrary external
+paths, either run the native command on Linux or adapt the Docker mount paths.
 
 ## Data Contract
 
@@ -161,8 +158,6 @@ npm run build     # TypeScript + production build
 
 ## Notes
 
-- The Hydrapple agent and other private agents are intentionally not included.
-- Private agents should be configured outside this repo boundary.
 - Full card art is loaded from external image URLs when set and collector
   numbers are available; the repo only bundles local UI/energy assets.
 - `dist/`, `node_modules/`, and local `.env` files are ignored and should not be

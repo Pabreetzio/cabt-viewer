@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_SUBMISSION = Path(
     os.environ.get(
         "CABT_SAMPLE_SUBMISSION_DIR",
-        WORKSPACE_ROOT / "agent-lab" / "official" / "sample_submission",
+        FRONTEND_ROOT / "sample_submission",
     )
 ).resolve()
 sys.path.insert(0, str(SAMPLE_SUBMISSION))
