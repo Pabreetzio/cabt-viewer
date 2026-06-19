@@ -111,6 +111,7 @@
   let sessionBusy = $derived(replayMode ? replayStore.loading : busy);
   let commandApi = $derived<GameCommandApi>(localGameApi);
   let resolvingPrompt = $derived(gameStore.resolvingPrompt);
+  let playingSequence = $derived(gameStore.playingSequence);
   let selectedHand = $derived(selectionStore.selectedHand);
   let draggingHand = $derived(selectionStore.draggingHand);
   let focusedSlot = $derived(selectionStore.focusedSlot);
@@ -326,7 +327,7 @@
   }
 
   $effect(() => {
-    if (game && (followActive || actingPlayerIsSelf) && !replayMode) {
+    if (game && (followActive || actingPlayerIsSelf) && !replayMode && !playingSequence) {
       viewSettingsStore.followPlayer(actingPlayerIndex);
     }
   });
@@ -669,6 +670,10 @@
 
   async function resolvePrompt(value: unknown) {
     if (!currentPrompt) return;
+    if (currentPrompt.fields.playbackOnly === true) {
+      gameStore.confirmPlaybackPrompt();
+      return;
+    }
     await gameSessionStore.resolve(() => commandApi.resolvePrompt(currentPrompt.id, value));
   }
 
@@ -1143,6 +1148,8 @@
         bind:autoConfirmPrompts={viewSettingsStore.autoConfirmPrompts}
         bind:debugZones={viewSettingsStore.debugZones}
         bind:showLogs={viewSettingsStore.showLogs}
+        bind:animateActions={viewSettingsStore.animateActions}
+        bind:actionStepDelayMs={viewSettingsStore.actionStepDelayMs}
         bind:themePreference={viewSettingsStore.themePreference}
         busy={sessionBusy}
         promptActive={replayMode || !!currentPrompt}
@@ -1163,12 +1170,15 @@
           step={replayStore.currentStep}
           stepIndex={replayStore.stepIndex}
           copiedForkPoint={replayStore.copiedForkPoint}
+          isPlaying={replayStore.isPlaying}
           setStep={(index) => replayStore.setStep(index)}
           setStateIndex={(index) => replayStore.setStateIndex(index)}
           previousStep={() => replayStore.previousStep()}
           nextStep={() => replayStore.nextStep()}
           firstStep={() => replayStore.firstStep()}
           lastStep={() => replayStore.lastStep()}
+          togglePlayback={() => replayStore.togglePlayback()}
+          backToReplayHome={resetGame}
           copyForkPoint={() => void replayStore.copyForkPoint()}
         />
       {/if}
@@ -1201,7 +1211,7 @@
             <PromptHost
               game={game}
               prompt={currentPrompt}
-              resolving={resolvingPrompt}
+              resolving={currentPrompt.fields.playbackOnly === true ? false : resolvingPrompt}
               activeAttachEnergyIndex={attachPromptEnergyIndex}
               attachAssignments={attachPromptAssignments}
               onresolve={resolvePrompt}
@@ -1296,7 +1306,7 @@
         {/if}
 
         {#if showLogs}
-          <LogPanel logs={game.logs} />
+          <LogPanel logs={game.logs} timeline={game.actionTimeline} />
         {/if}
 
         <ZoneViewer

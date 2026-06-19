@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { CabtDemoController, cabtObservationToGameView, type CabtDataMaps } from '../lib/cabt/demoEngine';
+import { CabtDemoController, cabtCardToView, cabtObservationToGameView, type CabtDataMaps } from '../lib/cabt/demoEngine';
+import { cabtLogsToTimeline } from '../lib/cabt/logFormat';
 import {
   CabtAreaType,
+  CabtLogType,
   CabtOptionType,
   CabtSelectContext,
   type CabtAttack,
@@ -16,7 +18,7 @@ import {
   type CabtSelectData,
 } from '../lib/cabt/types';
 import rawCardRows from '../lib/cabt/cardData.generated.json';
-import type { CardTarget, EngineResponse, LogView } from '../lib/game/types';
+import type { ActionTimelineEvent, CardTarget, EngineResponse, GameView, LogView } from '../lib/game/types';
 import { PlayerType, SlotType } from '../lib/game/types';
 import type { ReplayLoadResponse } from '../lib/game/replay';
 
@@ -90,12 +92,16 @@ export class LocalEngineController {
   private dataMaps: CabtDataMaps = { cardData: {}, attacks: {} };
   private logs: LogView[] = [];
   private logId = 1;
+  private actionTimeline: ActionTimelineEvent[] = [];
+  private timelineId = 1;
+  private pendingSequence: GameView[] = [];
   private sessionId = '';
   private pendingRetreatTarget: PendingRetreatTarget | null = null;
   private knownHands = new Map<number, CabtCard[]>();
   private replayFrames: CabtObservation[] = [];
   private replayPlayerLabels: [string, string] = ['Player 1', 'Player 2'];
   private replayModeLabel = 'Self vs Agent';
+  private playerControls: [PlayerControl, PlayerControl] = ['self', 'agent'];
 
   constructor() {
     this.bridge = new CabtBridgeClient(() => this.invalidateSession('CABT bridge exited.'));
@@ -210,7 +216,11 @@ export class LocalEngineController {
     this.sessionId = createSessionId();
     this.pendingRetreatTarget = null;
     this.knownHands.clear();
+    this.actionTimeline = [];
+    this.timelineId = 1;
+    this.pendingSequence = [];
     this.replayFrames = [];
+    this.playerControls = playerControls;
     this.replayModeLabel = `${controlLabel(playerControls[0])} vs ${controlLabel(playerControls[1])}`;
     this.replayPlayerLabels = [
       payload?.player1?.name ?? 'Player 1',
@@ -390,22 +400,30 @@ export class LocalEngineController {
     if (!response.ok) {
       throw new Error(response.traceback ? `${response.error}\n${response.traceback}` : (response.error ?? 'CABT bridge failed.'));
     }
-    this.recordReplayFrames(response);
-    this.observation = this.withKnownHands(response.observation ?? null);
     if (response.cards && response.attacks) {
       this.dataMaps = {
         cardData: Object.fromEntries(response.cards.map((card) => [card.cardId, enrichCardData(card)])),
         attacks: Object.fromEntries(response.attacks.map((attack) => [attack.attackId, attack])),
       };
     }
+    this.pendingSequence = [...this.pendingSequence, ...this.appendTimeline(response)];
+    this.recordReplayFrames(response);
+    this.observation = this.withKnownHands(response.observation ?? null);
   }
 
   private viewResponse(): EngineResponse {
-    return { ok: true, view: this.view(), sessionId: this.sessionId || undefined };
+    const sequence = this.pendingSequence;
+    this.pendingSequence = [];
+    return {
+      ok: true,
+      view: this.view(),
+      sequence: sequence.length ? sequence : undefined,
+      sessionId: this.sessionId || undefined,
+    };
   }
 
   private view() {
-    return cabtObservationToGameView(this.observation, this.logs, this.dataMaps);
+    return cabtObservationToGameView(this.observation, this.logs, this.dataMaps, this.actionTimeline);
   }
 
   private recordReplayFrames(response: BridgeResponse): void {
@@ -441,6 +459,76 @@ export class LocalEngineController {
       current: {
         ...observation.current,
         players,
+      },
+    };
+  }
+
+  private appendTimeline(response: BridgeResponse): GameView[] {
+    const observations = response.autoSteps?.length ? response.autoSteps : response.observation ? [response.observation] : [];
+    const sequence: GameView[] = [];
+    for (const observation of observations) {
+      const logs = observation.logs ?? [];
+      if (logs.length) {
+        const result = cabtLogsToTimeline(logs, { nextId: this.timelineId });
+        this.timelineId = result.nextId;
+        this.actionTimeline = [...this.actionTimeline, ...result.events].slice(-200);
+      }
+
+      const hydratedObservation = this.withKnownHands(observation);
+      if (!hydratedObservation) {
+        continue;
+      }
+      const view = cabtObservationToGameView(hydratedObservation, this.logs, this.dataMaps, this.actionTimeline);
+      const revealPrompt = this.revealPromptForLogs(logs, view);
+      if (revealPrompt) {
+        sequence.push({
+          ...view,
+          prompts: [revealPrompt],
+        });
+      }
+      if (!this.isAgentDecisionView(hydratedObservation, view)) {
+        sequence.push(view);
+      }
+    }
+    return sequence;
+  }
+
+  private isAgentDecisionView(observation: CabtObservation, view: GameView) {
+    const playerIndex = observation.current?.yourIndex;
+    return (playerIndex === 0 || playerIndex === 1)
+      && this.playerControls[playerIndex] === 'agent'
+      && view.prompts.length > 0;
+  }
+
+  private revealPromptForLogs(logs: Array<Record<string, unknown>>, view: GameView) {
+    const revealed = logs.filter((log) =>
+      log.type === CabtLogType.MOVE_CARD
+      && Number(log.fromArea) === CabtAreaType.DECK
+      && Number(log.toArea) === CabtAreaType.DISCARD
+      && Number.isFinite(Number(log.cardId)));
+    if (revealed.length < 2) {
+      return null;
+    }
+    const playerIndex = typeof revealed[0].playerIndex === 'number' ? revealed[0].playerIndex : view.activePlayerIndex;
+    return {
+      id: -this.timelineId,
+      className: 'ConfirmCardsPrompt',
+      type: 'playback-reveal',
+      playerId: playerIndex,
+      playerIndex,
+      supported: true,
+      message: 'Revealed and discarded cards',
+      resultSchema: 'confirm',
+      fields: {
+        playbackOnly: true,
+        cards: revealed.map((log, index) => ({
+          ...cabtCardToView({
+            id: Number(log.cardId),
+            serial: typeof log.serial === 'number' ? log.serial : undefined,
+            playerIndex,
+          }, this.dataMaps),
+          index,
+        })),
       },
     };
   }
@@ -558,6 +646,9 @@ export class LocalEngineController {
     this.observation = null;
     this.pendingRetreatTarget = null;
     this.knownHands.clear();
+    this.actionTimeline = [];
+    this.timelineId = 1;
+    this.pendingSequence = [];
     this.replayFrames = [];
     this.logs = [...this.logs, { id: this.logId++, message }];
   }

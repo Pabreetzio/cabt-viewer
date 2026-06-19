@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LocalEngineController } from './localEngine';
 import { SlotType, targetFor } from '../lib/game/types';
-import { CabtAreaType, CabtOptionType, CabtSelectContext } from '../lib/cabt/types';
+import { CabtAreaType, CabtLogType, CabtOptionType, CabtSelectContext } from '../lib/cabt/types';
 
 describe('LocalEngineController', () => {
   process.env.CABT_ENGINE_MODE = 'demo';
@@ -172,6 +172,138 @@ describe('LocalEngineController', () => {
     expect(engine.findPendingRetreatTargetOption()).toBe(1);
   });
 
+  it('appends bridge auto-step logs to the action timeline sequence', () => {
+    const engine = new LocalEngineController() as any;
+    const current = currentState();
+
+    engine.applyBridgeResponse({
+      ok: true,
+      id: 1,
+      observation: {
+        select: null,
+        logs: [{ type: CabtLogType.TURN_END, playerIndex: 1 }],
+        current,
+      },
+      autoSteps: [
+        {
+          select: null,
+          logs: [{ type: CabtLogType.TURN_START, playerIndex: 1 }],
+          current,
+        },
+        {
+          select: null,
+          logs: [{ type: CabtLogType.TURN_END, playerIndex: 1 }],
+          current,
+        },
+      ],
+    });
+
+    const response = engine.viewResponse();
+
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    expect(response.view.actionTimeline).toEqual([
+      expect.objectContaining({ id: 1, message: 'Player 2 turn started.' }),
+      expect.objectContaining({ id: 2, message: 'Player 2 ended their turn.' }),
+    ]);
+    expect(response.sequence).toEqual([
+      expect.objectContaining({
+        actionTimeline: [expect.objectContaining({ message: 'Player 2 turn started.' })],
+      }),
+      expect.objectContaining({
+        actionTimeline: [
+          expect.objectContaining({ message: 'Player 2 turn started.' }),
+          expect.objectContaining({ message: 'Player 2 ended their turn.' }),
+        ],
+      }),
+    ]);
+  });
+
+  it('inserts a playback reveal prompt for known deck-to-discard batches', () => {
+    const engine = new LocalEngineController() as any;
+    engine.dataMaps = {
+      cardData: {
+        3: { cardId: 3, name: 'Basic {W} Energy', cardType: 5, energyType: 3, set: 'SVE', setNumber: '3' },
+        723: { cardId: 723, name: 'Mega Abomasnow ex', cardType: 0, set: 'MEG', setNumber: '36' },
+      },
+      attacks: {},
+    };
+
+    engine.applyBridgeResponse({
+      ok: true,
+      id: 1,
+      observation: {
+        select: null,
+        logs: [
+          { type: CabtLogType.MOVE_CARD, playerIndex: 0, cardId: 3, serial: 10, fromArea: CabtAreaType.DECK, toArea: CabtAreaType.DISCARD },
+          { type: CabtLogType.MOVE_CARD, playerIndex: 0, cardId: 723, serial: 11, fromArea: CabtAreaType.DECK, toArea: CabtAreaType.DISCARD },
+        ],
+        current: currentState(),
+      },
+      autoSteps: [],
+    });
+
+    const response = engine.viewResponse();
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    const revealView = response.sequence?.[0];
+
+    expect(revealView?.prompts[0]).toEqual(expect.objectContaining({
+      className: 'ConfirmCardsPrompt',
+      type: 'playback-reveal',
+      message: 'Revealed and discarded cards',
+    }));
+    expect(revealView?.prompts[0]?.fields.cards).toEqual([
+      expect.objectContaining({ name: 'Basic {W} Energy' }),
+      expect.objectContaining({ name: 'Mega Abomasnow ex' }),
+    ]);
+    expect(response.sequence?.[1]?.prompts).toEqual([]);
+  });
+
+  it('skips agent decision frames according to manual player controls', () => {
+    const engine = new LocalEngineController() as any;
+    engine.playerControls = ['self', 'agent'];
+
+    engine.applyBridgeResponse({
+      ok: true,
+      id: 1,
+      observation: {
+        select: null,
+        logs: [],
+        current: currentState(),
+      },
+      autoSteps: [
+        {
+          select: {
+            type: 1,
+            context: CabtSelectContext.TO_ACTIVE,
+            minCount: 1,
+            maxCount: 1,
+            remainDamageCounter: 0,
+            remainEnergyCost: 0,
+            option: [{ type: CabtOptionType.CARD, area: CabtAreaType.BENCH, index: 0, playerIndex: 1 }],
+            deck: null,
+            contextCard: null,
+            effect: null,
+          },
+          logs: [],
+          current: currentState({ yourIndex: 1 }),
+        },
+        {
+          select: null,
+          logs: [],
+          current: currentState({ yourIndex: 0 }),
+        },
+      ],
+    });
+
+    const response = engine.viewResponse();
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    expect(response.sequence).toHaveLength(1);
+    expect(response.sequence?.[0]?.prompts).toEqual([]);
+  });
+
   it('batches repeated single-energy retreat payment prompts', async () => {
     const engine = new LocalEngineController() as any;
     const selections: number[][] = [];
@@ -290,8 +422,51 @@ describe('LocalEngineController', () => {
       },
     };
 
-    await engine.applySelection([0, 1, 2, 3]);
+    const response = await engine.applySelection([0, 1, 2, 3]);
 
     expect(selections).toEqual([[0], [0], [0], [0], [0]]);
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    expect(response.sequence).toHaveLength(5);
   });
 });
+
+function currentState(overrides: Record<string, unknown> = {}) {
+  return {
+    turn: 2,
+    turnActionCount: 0,
+    yourIndex: 0,
+    firstPlayer: 0,
+    supporterPlayed: false,
+    stadiumPlayed: false,
+    energyAttached: true,
+    retreated: false,
+    result: -1,
+    stadium: [],
+    looking: null,
+    players: [
+      playerState({ hand: [], handCount: 0 }),
+      playerState({ hand: null, handCount: 0 }),
+    ],
+    ...overrides,
+  };
+}
+
+function playerState(overrides: Record<string, unknown> = {}) {
+  return {
+    active: [null],
+    bench: [],
+    benchMax: 5,
+    deckCount: 47,
+    discard: [],
+    prize: [],
+    handCount: 0,
+    hand: [],
+    poisoned: false,
+    burned: false,
+    asleep: false,
+    paralyzed: false,
+    confused: false,
+    ...overrides,
+  };
+}
