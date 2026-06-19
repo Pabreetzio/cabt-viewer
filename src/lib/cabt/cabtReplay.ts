@@ -1,5 +1,6 @@
 import cardRows from './cardData.generated.json';
 import attackRows from './attackData.generated.json';
+import { cabtLogsToTimeline } from './logFormat';
 import { resolveCardImageUrl } from '../game/cardImages';
 import { SlotType, targetFor, type CardView, type GameView, type LogView, type PlayerView, type PokemonSlotView } from '../game/types';
 import type { ReplaySnapshot, ReplayStep } from '../game/replay';
@@ -112,12 +113,16 @@ export function cabtReplayToSnapshot(input: unknown): ReplaySnapshot {
   const steps: ReplayStep[] = [];
   const logs: LogView[] = [];
   let logId = 1;
+  let timelineId = 1;
 
   visualFrames.forEach((frame, index) => {
-    for (const entry of frame.logs ?? []) {
+    const frameLogs = frame.logs ?? [];
+    const timeline = cabtLogsToTimeline(frameLogs, { nextId: timelineId });
+    timelineId = timeline.nextId;
+    for (const entry of frameLogs) {
       logs.push({ id: logId++, message: formatLog(entry), params: entry });
     }
-    const view = frameToGameView(frame, players, logs);
+    const view = frameToGameView(frame, players, logs, timeline.events);
     views.push(view);
     steps.push({
       index,
@@ -182,7 +187,12 @@ function extractVisualizeFrames(input: unknown): CabtVisualizeFrame[] {
   return [];
 }
 
-function frameToGameView(frame: CabtVisualizeFrame, playerNamesForReplay: string[], logs: LogView[]): GameView {
+function frameToGameView(
+  frame: CabtVisualizeFrame,
+  playerNamesForReplay: string[],
+  logs: LogView[],
+  actionTimeline: GameView['actionTimeline'],
+): GameView {
   const current = frame.current;
   const activePlayerIndex = clampPlayerIndex(current.yourIndex);
   const players = current.players.map((player, index) =>
@@ -199,6 +209,7 @@ function frameToGameView(frame: CabtVisualizeFrame, playerNamesForReplay: string
     players,
     prompts: [],
     logs: [...logs],
+    actionTimeline,
     events: [frame],
   };
 }

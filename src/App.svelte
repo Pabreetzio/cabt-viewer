@@ -106,6 +106,9 @@
   let saveReplayError = $state('');
   let replayMode = $derived(homeMode === 'logs' && !!replayStore.replay);
   let game = $derived(replayMode ? replayStore.currentView : gameStore.game);
+  let animationScopeKey = $derived(replayMode
+    ? `replay-${replayStore.stepIndex}`
+    : `live-${game?.actionTimeline?.at(-1)?.id ?? 0}`);
   let error = $derived(homeMode === 'logs' ? replayStore.error : gameStore.error);
   let busy = $derived(replayMode ? replayStore.loading : gameStore.busy);
   let sessionBusy = $derived(replayMode ? replayStore.loading : busy);
@@ -1271,6 +1274,9 @@
           {boardPerspective}
           {boardScaleY}
           {boardLift}
+          animationEvents={game.actionTimeline ?? []}
+          {animationScopeKey}
+          {replayMode}
         />
 
         <PlayerPanel side="bottom">

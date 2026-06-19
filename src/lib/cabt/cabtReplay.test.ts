@@ -107,6 +107,44 @@ describe('cabtReplayToSnapshot', () => {
     expect(snapshot.steps[0].label).toBe('Player 1 took 2 Prize cards.');
   });
 
+  it('exposes per-frame action timeline events for replay animations', () => {
+    const snapshot = cabtReplayToSnapshot({
+      visualize: [{
+        logs: [
+          { type: 'Shuffle', playerIndex: 1 },
+        ],
+        current: {
+          turn: 2,
+          yourIndex: 1,
+          result: -1,
+          players: [{
+            active: [],
+            bench: [],
+            benchMax: 5,
+            handCount: 0,
+            deckCount: 12,
+            prize: [],
+          }, {
+            active: [],
+            bench: [],
+            benchMax: 5,
+            handCount: 0,
+            deckCount: 14,
+            prize: [],
+          }],
+        },
+      }],
+    });
+
+    expect(snapshot.views[0].actionTimeline).toEqual([
+      expect.objectContaining({
+        kind: 'Shuffle',
+        playerIndex: 1,
+        message: 'Player 2 shuffled their deck.',
+      }),
+    ]);
+  });
+
   it('uses attack names in replay step labels when card metadata has them', () => {
     const snapshot = cabtReplayToSnapshot({
       visualize: [{

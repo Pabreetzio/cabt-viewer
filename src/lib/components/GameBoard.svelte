@@ -2,7 +2,7 @@
   import ActiveDuel from './ActiveDuel.svelte';
   import BenchZone from './BenchZone.svelte';
   import CenterPiles from './CenterPiles.svelte';
-  import type { CardView, PlayerView, PokemonSlotView } from '../game/types';
+  import type { ActionTimelineEvent, CardView, PlayerView, PokemonSlotView } from '../game/types';
 
   type ZoneName = 'discard' | 'lostZone' | 'stadium' | 'playZone';
 
@@ -39,6 +39,9 @@
     boardPerspective?: number;
     boardScaleY?: number;
     boardLift?: number;
+    animationEvents?: ActionTimelineEvent[];
+    animationScopeKey?: string | number;
+    replayMode?: boolean;
   };
 
   let {
@@ -74,6 +77,9 @@
     boardPerspective = 1250,
     boardScaleY = 98,
     boardLift = 0,
+    animationEvents = [],
+    animationScopeKey = '',
+    replayMode = false,
   }: Props = $props();
 
   let topLostPileElement = $state<HTMLButtonElement>();
@@ -198,6 +204,9 @@
       {bottomPlayer}
       {boardTilt}
       {projectedHoverPile}
+      {animationEvents}
+      {animationScopeKey}
+      {replayMode}
       bind:topLostPileElement
       bind:topDiscardPileElement
       bind:bottomLostPileElement

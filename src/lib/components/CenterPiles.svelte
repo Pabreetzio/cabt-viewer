@@ -1,6 +1,8 @@
 <script lang="ts">
   import CardTile from './CardTile.svelte';
+  import DeckShuffleAnimation from './DeckShuffleAnimation.svelte';
   import type { PlayerView } from '../game/types';
+  import type { ActionTimelineEvent } from '../game/types';
 
   type Props = {
     topPlayer: PlayerView;
@@ -11,6 +13,9 @@
     topDiscardPileElement?: HTMLButtonElement;
     bottomLostPileElement?: HTMLButtonElement;
     bottomDiscardPileElement?: HTMLButtonElement;
+    animationEvents?: ActionTimelineEvent[];
+    animationScopeKey?: string | number;
+    replayMode?: boolean;
     showLostZone: (player: PlayerView) => void;
     showDiscard: (player: PlayerView) => void;
   };
@@ -24,6 +29,9 @@
     topDiscardPileElement = $bindable(),
     bottomLostPileElement = $bindable(),
     bottomDiscardPileElement = $bindable(),
+    animationEvents = [],
+    animationScopeKey = '',
+    replayMode = false,
     showLostZone,
     showDiscard,
   }: Props = $props();
@@ -75,12 +83,20 @@
     <div class="right-field">
       <div class="right-piles">
         <span class="stack-pile deck-pile" style={deckPileStyle(topPlayer.deckCount, -1)} title={`${topPlayer.name} deck`}>
+          <span class="card-anchor" data-card-anchor={`player:${topPlayer.index}:deck`}></span>
           {#each visibleDeckLayers(topPlayer.deckCount) as layer, layerIndex}
             <span class="deck-card-layer" style={`--deck-layer: ${layerIndex};`}></span>
           {/each}
           {#if topPlayer.deckCount > 0}
             <span class="deck-card-face"></span>
           {/if}
+          <DeckShuffleAnimation
+            events={animationEvents}
+            playerIndex={topPlayer.index}
+            scopeKey={animationScopeKey}
+            {replayMode}
+            opponent
+          />
           <span class="pile-count">{topPlayer.deckCount}</span>
         </span>
         <button
@@ -124,12 +140,19 @@
     <div class="right-field">
       <div class="right-piles">
         <span class="stack-pile deck-pile" style={deckPileStyle(bottomPlayer.deckCount, 1)} title={`${bottomPlayer.name} deck`}>
+          <span class="card-anchor" data-card-anchor={`player:${bottomPlayer.index}:deck`}></span>
           {#each visibleDeckLayers(bottomPlayer.deckCount) as layer, layerIndex}
             <span class="deck-card-layer" style={`--deck-layer: ${layerIndex};`}></span>
           {/each}
           {#if bottomPlayer.deckCount > 0}
             <span class="deck-card-face"></span>
           {/if}
+          <DeckShuffleAnimation
+            events={animationEvents}
+            playerIndex={bottomPlayer.index}
+            scopeKey={animationScopeKey}
+            {replayMode}
+          />
           <span class="pile-count">{bottomPlayer.deckCount}</span>
         </span>
         <button
@@ -292,10 +315,16 @@
   }
 
   .deck-card-face,
-  .deck-card-layer {
+  .deck-card-layer,
+  .card-anchor {
     position: absolute;
     display: block;
     pointer-events: none;
+  }
+
+  .card-anchor {
+    inset: 0;
+    z-index: -1;
   }
 
   .deck-card-face,
