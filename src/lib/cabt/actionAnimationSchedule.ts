@@ -105,6 +105,13 @@ function animationPhaseForEvent(event: ActionTimelineEvent): AnimationPhase | nu
         stepMs: actionAnimationTiming.deckRevealStepMs,
       };
     }
+    if (fromArea === CabtAreaType.DECK && toArea === CabtAreaType.HAND) {
+      return {
+        key: `DeckSearchReveal:${playerKey}`,
+        durationMs: actionAnimationTiming.deckRevealMs,
+        stepMs: actionAnimationTiming.deckRevealStepMs,
+      };
+    }
     if (fromArea === CabtAreaType.LOOKING && toArea === CabtAreaType.DECK) {
       return {
         key: `DeckRevealReturn:${playerKey}`,

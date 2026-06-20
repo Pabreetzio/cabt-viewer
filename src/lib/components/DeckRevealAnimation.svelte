@@ -11,12 +11,13 @@
     replayMode?: boolean;
   };
 
-  type RevealMode = 'revealing' | 'held' | 'attaching' | 'returning';
+  type RevealMode = 'revealing' | 'searching' | 'held' | 'attaching' | 'returning';
 
   type RevealSprite = {
     id: string;
     card: CardView;
     serial?: number;
+    targetElement?: HTMLElement;
     order: number;
     mode: RevealMode;
     delayMs: number;
@@ -27,6 +28,11 @@
     revealX: number;
     revealY: number;
     deckScale: number;
+    takeX: number;
+    takeY: number;
+    takeScale: number;
+    takeRotation: number;
+    takeFlip: number;
     exitX: number;
     exitY: number;
     exitScale: number;
@@ -46,12 +52,14 @@
 
   const timers: ReturnType<typeof setTimeout>[] = [];
   const cardHeightToWidthRatio = 88 / 63;
+  const handoffOverlapMs = 48;
   let reveals = $state<RevealAnimation[]>([]);
   let seenEventIds = new Set<number>();
   let initialized = false;
   let lastScopeKey: string | number = '';
   let nextAnimationId = 1;
   const activeAttachElements = new Set<HTMLElement>();
+  const hiddenTargetCounts = new Map<HTMLElement, number>();
 
   onDestroy(() => {
     clearReveals();
@@ -103,7 +111,10 @@
     const params = event.params as Record<string, unknown> | undefined;
     return event.kind === 'MoveCard'
       && Number(params?.fromArea) === CabtAreaType.DECK
-      && Number(params?.toArea) === CabtAreaType.LOOKING
+      && (
+        Number(params?.toArea) === CabtAreaType.LOOKING
+        || Number(params?.toArea) === CabtAreaType.HAND
+      )
       && Number.isFinite(Number(params?.cardId));
   }
 
@@ -142,15 +153,38 @@
     }
 
     clearReveals();
+    const hiddenTargets = sprites
+      .filter((sprite) => sprite.mode === 'searching' && sprite.targetElement)
+      .map((sprite) => sprite.targetElement!);
+    hideTargets(hiddenTargets);
     const animation: RevealAnimation = {
       id: nextAnimationId++,
       sprites,
     };
     reveals = [animation];
 
+    for (const sprite of sprites) {
+      if (sprite.mode !== 'searching') {
+        continue;
+      }
+      const revealMs = motionDurationMs(actionAnimationTiming.deckRevealMs);
+      const overlapMs = Math.min(handoffOverlapMs, revealMs);
+      const target = sprite.targetElement;
+      if (target) {
+        const showTimer = setTimeout(() => {
+          showTargets([target]);
+        }, sprite.delayMs + revealMs - overlapMs);
+        timers.push(showTimer);
+      }
+      const removeTimer = setTimeout(() => {
+        removeSprites((item) => item.id === sprite.id);
+      }, sprite.delayMs + revealMs + overlapMs);
+      timers.push(removeTimer);
+    }
+
     const timer = setTimeout(() => {
       updateSprites((sprite) => sprite.mode === 'revealing' ? { ...sprite, mode: 'held', delayMs: 0 } : sprite);
-    }, Math.max(...sprites.map((sprite) => sprite.delayMs)) + actionAnimationTiming.deckRevealMs);
+    }, Math.max(...sprites.map((sprite) => sprite.delayMs)) + motionDurationMs(actionAnimationTiming.deckRevealMs));
     timers.push(timer);
   }
 
@@ -235,6 +269,7 @@
       clearTimeout(timer);
     }
     timers.length = 0;
+    clearHiddenTargets();
     reveals = [];
     clearAttachTargets();
   }
@@ -292,7 +327,11 @@
       const params = event.params as Record<string, unknown> | undefined;
       const cardId = Number(params?.cardId);
       const serial = Number(params?.serial);
+      const toArea = Number(params?.toArea);
       const target = layout.target(index);
+      const takeTarget = toArea === CabtAreaType.HAND
+        ? handTargetForPlayer(playerIndex, serial, index, playerEvents.length)
+        : undefined;
       return {
         id: `${event.id}-${Number.isFinite(serial) ? serial : index}`,
         card: {
@@ -301,8 +340,9 @@
           playerIndex,
         },
         serial: Number.isFinite(serial) ? serial : undefined,
+        targetElement: takeTarget?.element,
         order: index + 1,
-        mode: 'revealing',
+        mode: toArea === CabtAreaType.HAND ? 'searching' : 'revealing',
         delayMs: actionAnimationStartMs(animationEvents, event),
         left: deckCenter.x - layout.cardWidth / 2,
         top: deckCenter.y - layout.cardHeight / 2,
@@ -311,6 +351,11 @@
         revealX: target.x - deckCenter.x,
         revealY: target.y - deckCenter.y,
         deckScale: Math.max(0.32, Math.min(0.9, deckRect.width / layout.cardWidth)),
+        takeX: (takeTarget?.center.x ?? target.x) - deckCenter.x,
+        takeY: (takeTarget?.center.y ?? target.y) - deckCenter.y,
+        takeScale: Math.max(0.32, Math.min(1.2, (takeTarget?.width ?? layout.cardWidth) / layout.cardWidth)),
+        takeRotation: takeTarget?.concealed ? 180 : 0,
+        takeFlip: takeTarget?.concealed ? 0 : 180,
         exitX: 0,
         exitY: 0,
         exitScale: 1,
@@ -330,16 +375,22 @@
     const maxWidth = boardRect ? boardRect.width - 96 : viewportWidth - 96;
     const availableWidth = Math.max(220, maxWidth);
     const spacingRatio = viewportWidth < 760 ? 0.62 : 0.7;
-    const desiredCardWidth = viewportWidth < 760 ? 104 : 142;
-    const minCardWidth = 86;
+    const minCardWidth = viewportWidth < 760 ? 92 : 112;
     const maxColumns = Math.max(1, Math.floor(((availableWidth / minCardWidth) - 1) / spacingRatio + 1));
     const columns = Math.min(count, maxColumns);
-    const cardWidth = Math.min(desiredCardWidth, availableWidth / (1 + spacingRatio * Math.max(0, columns - 1)));
+    const rows = Math.ceil(count / columns);
+    const boardHeight = boardRect?.height ?? viewportHeight;
+    const revealBandHeight = boardHeight * (viewportWidth < 760 ? 0.46 : 0.52);
+    const maxByHeight = revealBandHeight / (cardHeightToWidthRatio * (rows + Math.max(0, rows - 1) * 0.08));
+    const maxReadableWidth = Math.min(viewportWidth < 760 ? 174 : 252, availableWidth, maxByHeight);
+    const countScale = count <= 1 ? 1 : count <= 2 ? 0.9 : count <= 4 ? 0.78 : count <= 6 ? 0.68 : 0.58;
+    const desiredCardWidth = maxReadableWidth * countScale;
+    const maxByWidth = availableWidth / (1 + spacingRatio * Math.max(0, columns - 1));
+    const cardWidth = Math.max(minCardWidth, Math.min(maxReadableWidth, desiredCardWidth, maxByWidth));
     const cardHeight = cardWidth * cardHeightToWidthRatio;
     const spacing = cardWidth * spacingRatio;
     const rotationStep = count <= 1 ? 0 : Math.min(5, 20 / Math.max(1, count - 1));
     const arcDrop = cardWidth * 0.045;
-    const rows = Math.ceil(count / columns);
     const rowGap = cardHeight * 0.08;
     const totalHeight = rows * cardHeight + Math.max(0, rows - 1) * rowGap;
     const originY = centerY - totalHeight / 2 + cardHeight / 2;
@@ -391,6 +442,97 @@
     return pile?.querySelector('.deck-card-face') ?? pile;
   }
 
+  function handTargetForPlayer(
+    playerIndex: number,
+    serial: number,
+    index: number,
+    count: number,
+  ): { center: { x: number; y: number }; width: number; concealed: boolean; element?: HTMLElement } | undefined {
+    const handElement = handAnchor(playerIndex);
+    if (!handElement) {
+      return undefined;
+    }
+    const handRect = handElement.getBoundingClientRect();
+    if (handRect.width <= 0 || handRect.height <= 0) {
+      return undefined;
+    }
+    const handSlots = handCardSlots(handElement, playerIndex);
+    const targetElement = handSlotForSerial(handSlots, serial);
+    const targetRect = targetElement?.getBoundingClientRect() ?? fallbackHandTarget(handRect, index, count);
+    return {
+      center: centerOf(targetRect),
+      width: targetRect.width,
+      concealed: handElement.classList.contains('concealed'),
+      element: targetElement,
+    };
+  }
+
+  function handAnchor(playerIndex: number): HTMLElement | null {
+    return document.querySelector(`[data-card-anchor="player:${playerIndex}:hand"]`);
+  }
+
+  function handCardSlots(handElement: HTMLElement, playerIndex: number): HTMLElement[] {
+    return Array.from(handElement.querySelectorAll(`[data-hand-card-slot^="player:${playerIndex}:hand:"]`))
+      .filter((element): element is HTMLElement => element instanceof HTMLElement);
+  }
+
+  function handSlotForSerial(handSlots: HTMLElement[], serial: number): HTMLElement | undefined {
+    if (!Number.isFinite(serial)) {
+      return undefined;
+    }
+    return handSlots.find((element) => Number(element.dataset.cardSerial) === serial);
+  }
+
+  function fallbackHandTarget(handRect: DOMRect, index: number, count: number): DOMRect {
+    const width = Math.min(handRect.height / cardHeightToWidthRatio, handRect.width / Math.max(1, count));
+    const height = width * cardHeightToWidthRatio;
+    const step = Math.min(width * 0.82, handRect.width / Math.max(1, count));
+    const centerX = handRect.left + handRect.width / 2 + (index - (count - 1) / 2) * step;
+    const centerY = handRect.top + handRect.height / 2;
+    return {
+      left: centerX - width / 2,
+      top: centerY - height / 2,
+      right: centerX + width / 2,
+      bottom: centerY + height / 2,
+      x: centerX - width / 2,
+      y: centerY - height / 2,
+      width,
+      height,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  function hideTargets(targets: HTMLElement[]) {
+    for (const target of targets) {
+      const count = hiddenTargetCounts.get(target) ?? 0;
+      hiddenTargetCounts.set(target, count + 1);
+      target.dataset.revealAnimationHidden = 'true';
+    }
+  }
+
+  function showTargets(targets: HTMLElement[]) {
+    for (const target of targets) {
+      const count = (hiddenTargetCounts.get(target) ?? 1) - 1;
+      if (count > 0) {
+        hiddenTargetCounts.set(target, count);
+        continue;
+      }
+      hiddenTargetCounts.delete(target);
+      delete target.dataset.revealAnimationHidden;
+    }
+  }
+
+  function clearHiddenTargets() {
+    for (const target of hiddenTargetCounts.keys()) {
+      delete target.dataset.revealAnimationHidden;
+    }
+    hiddenTargetCounts.clear();
+  }
+
+  function motionDurationMs(durationMs: number): number {
+    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 1 : durationMs;
+  }
+
   function boardSlotByPokemonIdentity(serial: number, cardId: number, playerIndex: number | undefined): HTMLElement | null {
     if (Number.isFinite(serial)) {
       const bySerial = document.querySelector(`[data-pokemon-serial="${serial}"]`);
@@ -438,6 +580,11 @@
       `--reveal-x: ${sprite.revealX.toFixed(1)}px`,
       `--reveal-y: ${sprite.revealY.toFixed(1)}px`,
       `--deck-scale: ${sprite.deckScale.toFixed(3)}`,
+      `--take-x: ${sprite.takeX.toFixed(1)}px`,
+      `--take-y: ${sprite.takeY.toFixed(1)}px`,
+      `--take-scale: ${sprite.takeScale.toFixed(3)}`,
+      `--take-rotation: ${sprite.takeRotation.toFixed(1)}deg`,
+      `--take-flip: ${sprite.takeFlip.toFixed(1)}deg`,
       `--exit-x: ${sprite.exitX.toFixed(1)}px`,
       `--exit-y: ${sprite.exitY.toFixed(1)}px`,
       `--exit-scale: ${sprite.exitScale.toFixed(3)}`,
@@ -484,11 +631,16 @@
     border-radius: 7px;
     transform-origin: center;
     transform-style: preserve-3d;
+    isolation: isolate;
     will-change: transform, opacity;
   }
 
   .reveal-card.revealing {
     animation: deck-reveal-travel 1180ms cubic-bezier(0.18, 0.86, 0.24, 1) var(--reveal-delay) both;
+  }
+
+  .reveal-card.searching {
+    animation: deck-search-reveal 1180ms cubic-bezier(0.18, 0.86, 0.24, 1) var(--reveal-delay) both;
   }
 
   .reveal-card.held {
@@ -513,8 +665,16 @@
     will-change: transform;
   }
 
+  :global([data-reveal-animation-hidden='true']) {
+    opacity: 0;
+  }
+
   .reveal-card.revealing .reveal-card-inner {
     animation: deck-reveal-flip 420ms ease-in-out var(--reveal-delay) both;
+  }
+
+  .reveal-card.searching .reveal-card-inner {
+    animation: deck-search-reveal-flip 1180ms ease-in-out var(--reveal-delay) both;
   }
 
   .reveal-card.returning .reveal-card-inner {
@@ -531,17 +691,19 @@
     box-shadow:
       0 18px 38px rgba(23, 30, 38, 0.26),
       0 0 0 1px rgba(18, 21, 26, 0.18);
+    -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
   }
 
   .reveal-card-back {
+    transform: translateZ(0.2px);
     background:
       var(--cardback-shade),
       url("/assets/cardback.png") center / cover no-repeat;
   }
 
   .reveal-card-front {
-    transform: rotateY(180deg);
+    transform: rotateY(180deg) translateZ(0.2px);
     background: #f7f8fa;
   }
 
@@ -581,6 +743,45 @@
     100% {
       opacity: 1;
       transform: translate3d(var(--reveal-x), var(--reveal-y), 0) scale(1) rotate(var(--reveal-rotation));
+    }
+  }
+
+  @keyframes deck-search-reveal {
+    0% {
+      opacity: 0;
+      transform:
+        translate3d(0, 0, 0)
+        scale(var(--deck-scale))
+        rotate(0deg);
+    }
+    2% {
+      opacity: 1;
+      transform:
+        translate3d(0, 0, 0)
+        scale(var(--deck-scale))
+        rotate(0deg);
+    }
+    42% {
+      opacity: 1;
+      transform: translate3d(var(--reveal-x), var(--reveal-y), 0) scale(1) rotate(var(--reveal-rotation));
+    }
+    68% {
+      opacity: 1;
+      transform: translate3d(var(--reveal-x), var(--reveal-y), 0) scale(1) rotate(var(--reveal-rotation));
+    }
+    96% {
+      opacity: 1;
+      transform:
+        translate3d(var(--take-x), var(--take-y), 0)
+        scale(var(--take-scale))
+        rotate(var(--take-rotation));
+    }
+    100% {
+      opacity: 0;
+      transform:
+        translate3d(var(--take-x), var(--take-y), 0)
+        scale(var(--take-scale))
+        rotate(var(--take-rotation));
     }
   }
 
@@ -635,6 +836,21 @@
     }
   }
 
+  @keyframes deck-search-reveal-flip {
+    0% {
+      transform: rotateY(0deg);
+    }
+    36% {
+      transform: rotateY(180deg);
+    }
+    72% {
+      transform: rotateY(180deg);
+    }
+    100% {
+      transform: rotateY(var(--take-flip));
+    }
+  }
+
   @keyframes deck-reveal-return-flip {
     0% {
       transform: rotateY(180deg);
@@ -646,9 +862,11 @@
 
   @media (prefers-reduced-motion: reduce) {
     .reveal-card.revealing,
+    .reveal-card.searching,
     .reveal-card.attaching,
     .reveal-card.returning,
     .reveal-card.revealing .reveal-card-inner,
+    .reveal-card.searching .reveal-card-inner,
     .reveal-card.returning .reveal-card-inner {
       animation-duration: 1ms;
     }

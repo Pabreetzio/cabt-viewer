@@ -58,6 +58,17 @@ describe('actionAnimationStartMs', () => {
     expect(actionAnimationStartMs(events, events[2])).toBe(actionAnimationTiming.handMoveMs + actionAnimationTiming.deckRevealStepMs);
   });
 
+  it('sequences deck search reveals before the follow-up shuffle', () => {
+    const events: ActionTimelineEvent[] = [
+      event(1, 'Play', { cardId: 1145, serial: 14 }),
+      event(2, 'MoveCard', { cardId: 723, serial: 13, fromArea: CabtAreaType.DECK, toArea: CabtAreaType.HAND }),
+      event(3, 'Shuffle', {}),
+    ];
+
+    expect(actionAnimationStartMs(events, events[1])).toBe(actionAnimationTiming.handMoveMs);
+    expect(actionAnimationStartMs(events, events[2])).toBe(actionAnimationTiming.handMoveMs + actionAnimationTiming.deckRevealMs);
+  });
+
   it('sequences revealed cards returning before the follow-up shuffle', () => {
     const events: ActionTimelineEvent[] = [
       event(1, 'MoveCard', { cardId: 3, serial: 58, fromArea: CabtAreaType.LOOKING, toArea: CabtAreaType.DECK }),

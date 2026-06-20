@@ -2,7 +2,7 @@ import cardRows from './cardData.generated.json';
 import attackRows from './attackData.generated.json';
 import { actionAnimationTiming } from './actionAnimationSchedule';
 import { cabtLogsToTimeline } from './logFormat';
-import { CabtAreaType } from './types';
+import { CabtAreaType, CabtSelectContext } from './types';
 import { resolveCardImageUrl } from '../game/cardImages';
 import { SlotType, targetFor, type ActionTimelineEvent, type CardView, type GameView, type LogView, type PlayerView, type PokemonSlotView } from '../game/types';
 import type { ReplayAnimationPhase, ReplaySnapshot, ReplayStep } from '../game/replay';
@@ -134,7 +134,7 @@ export function cabtReplayToSnapshot(input: unknown): ReplaySnapshot {
 
   for (let index = 0; index < frameEntries.length; index += 1) {
     const { frame, view, groups } = frameEntries[index];
-    const continuation = deckRevealContinuation(frameEntries, index);
+    const continuation = cardEffectContinuation(frameEntries, index);
     if (continuation) {
       const currentView = frameEntries[continuation.endIndex].view;
       steps.push(replayStepForFrame({
@@ -226,14 +226,14 @@ type ReplayFrameEntry = {
   groups: ReplayActionGroup[];
 };
 
-type DeckRevealContinuation = {
+type CardEffectContinuation = {
   endIndex: number;
   group: ReplayActionGroup;
 };
 
-function deckRevealContinuation(entries: ReplayFrameEntry[], startIndex: number): DeckRevealContinuation | null {
+function cardEffectContinuation(entries: ReplayFrameEntry[], startIndex: number): CardEffectContinuation | null {
   const firstGroup = entries[startIndex].groups[0];
-  if (!firstGroup || entries[startIndex].groups.length !== 1 || !isDeckRevealPlayGroup(firstGroup)) {
+  if (!firstGroup || entries[startIndex].groups.length !== 1 || !isCardEffectStartGroup(firstGroup)) {
     return null;
   }
   const playerIndex = firstGroup.events.find((event) => event.kind === 'Play')?.playerIndex;
@@ -241,12 +241,21 @@ function deckRevealContinuation(entries: ReplayFrameEntry[], startIndex: number)
     return null;
   }
 
+  if (isCompleteDeckSearchEffect(firstGroup.events, playerIndex)) {
+    return { endIndex: startIndex, group: firstGroup };
+  }
+
+  const deckSearchContinuation = deckSearchContinuationFrom(entries, startIndex, firstGroup, playerIndex);
+  if (deckSearchContinuation) {
+    return deckSearchContinuation;
+  }
+
   for (let index = startIndex + 1; index < entries.length; index += 1) {
     const groups = entries[index].groups;
     if (!groups.length) {
       continue;
     }
-    if (groups.length === 1 && isDeckRevealResolutionGroup(groups[0], playerIndex)) {
+    if (groups.length === 1 && isCardEffectContinuationGroup(groups[0], playerIndex, firstGroup)) {
       return {
         endIndex: index,
         group: {
@@ -260,9 +269,107 @@ function deckRevealContinuation(entries: ReplayFrameEntry[], startIndex: number)
   return null;
 }
 
-function isDeckRevealPlayGroup(group: ReplayActionGroup): boolean {
-  return group.events.some((event) => event.kind === 'Play')
-    && group.events.some((event) => isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.LOOKING));
+function isCardEffectStartGroup(group: ReplayActionGroup): boolean {
+  const playerIndex = group.events.find((event) => event.kind === 'Play')?.playerIndex;
+  if (playerIndex === undefined) {
+    return false;
+  }
+  return group.events.some((event) => event.kind === 'Play');
+}
+
+function deckSearchContinuationFrom(
+  entries: ReplayFrameEntry[],
+  startIndex: number,
+  startGroup: ReplayActionGroup,
+  playerIndex: number,
+): CardEffectContinuation | null {
+  if (startGroup.events.some((event) => isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.LOOKING))) {
+    return null;
+  }
+
+  const continuationEvents: ActionTimelineEvent[] = [];
+  let sawDeckSearchPrompt = isDeckSearchPrompt(entries[startIndex].frame);
+  let sawDeckToHand = false;
+  for (let index = startIndex + 1; index < entries.length; index += 1) {
+    const groups = entries[index].groups;
+    if (!groups.length) {
+      sawDeckSearchPrompt ||= isDeckSearchPrompt(entries[index].frame);
+      continue;
+    }
+    if (!sawDeckSearchPrompt) {
+      return null;
+    }
+    if (groups.length !== 1 || !isDeckSearchContinuationGroup(groups[0], playerIndex)) {
+      return null;
+    }
+    if (!deckSearchContinuationOrderIsValid(groups[0].events, sawDeckToHand)) {
+      return null;
+    }
+
+    continuationEvents.push(...groups[0].events);
+    sawDeckToHand ||= groups[0].events.some((event) => isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.HAND));
+    const events = [...startGroup.events, ...continuationEvents];
+    if (isCompleteDeckSearchEffect(events, playerIndex)) {
+      return {
+        endIndex: index,
+        group: {
+          ...startGroup,
+          events,
+        },
+      };
+    }
+  }
+  return null;
+}
+
+function deckSearchContinuationOrderIsValid(events: ActionTimelineEvent[], sawDeckToHand: boolean): boolean {
+  let hasSeenDeckToHand = sawDeckToHand;
+  for (const event of events) {
+    if (isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.HAND)) {
+      hasSeenDeckToHand = true;
+      continue;
+    }
+    if (event.kind === 'Shuffle' && !hasSeenDeckToHand) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isDeckSearchPrompt(frame: CabtVisualizeFrame): boolean {
+  const context = frame.select?.context;
+  if (context === CabtSelectContext.TO_HAND || context === CabtSelectContext.TO_HAND_ENERGY) {
+    return true;
+  }
+  const normalizedContext = String(context ?? '').toLowerCase().replace(/[_\s-]+/g, '');
+  return normalizedContext.includes('searchdeck') || normalizedContext.includes('tohand');
+}
+
+function isDeckSearchContinuationGroup(group: ReplayActionGroup, playerIndex: number): boolean {
+  return group.events.every((event) =>
+    (event.playerIndex === undefined || event.playerIndex === playerIndex)
+    && (
+      event.kind === 'Shuffle'
+      || isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.HAND)
+    ));
+}
+
+function isCompleteDeckSearchEffect(events: ActionTimelineEvent[], playerIndex: number): boolean {
+  return events.every((event) => event.playerIndex === undefined || event.playerIndex === playerIndex)
+    && events.some((event) => event.kind === 'Play')
+    && events.some((event) => isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.HAND))
+    && events.some((event) => event.kind === 'Shuffle');
+}
+
+function isCardEffectContinuationGroup(
+  group: ReplayActionGroup,
+  playerIndex: number,
+  startGroup: ReplayActionGroup,
+): boolean {
+  if (startGroup.events.some((event) => isMoveBetween(event, CabtAreaType.DECK, CabtAreaType.LOOKING))) {
+    return isDeckRevealResolutionGroup(group, playerIndex);
+  }
+  return false;
 }
 
 function isDeckRevealResolutionGroup(group: ReplayActionGroup, playerIndex: number): boolean {
@@ -649,6 +756,11 @@ function animationPhaseLabel(phase: AnimationEventPhase): string | undefined {
   if (phase.key.startsWith('DeckRevealReturn:')) {
     return `${actor} returned ${cardEventCount} revealed ${plural(cardEventCount, 'card')} to their deck.`;
   }
+  if (phase.key.startsWith('DeckSearchReveal:')) {
+    return cardEventCount === 1
+      ? `${actor} revealed a card from their deck and put it into their hand.`
+      : `${actor} revealed ${cardEventCount} cards from their deck and put them into their hand.`;
+  }
   if (phase.key.startsWith('DeckReveal:')) {
     return `${actor} revealed the top ${cardEventCount} ${plural(cardEventCount, 'card')} of their deck.`;
   }
@@ -684,6 +796,9 @@ function animationPhaseKey(event: ActionTimelineEvent): string | null {
     }
     if (fromArea === CabtAreaType.DECK && toArea === CabtAreaType.LOOKING) {
       return `DeckReveal:${playerKey}`;
+    }
+    if (fromArea === CabtAreaType.DECK && toArea === CabtAreaType.HAND) {
+      return `DeckSearchReveal:${playerKey}`;
     }
     if (fromArea === CabtAreaType.LOOKING && toArea === CabtAreaType.DECK) {
       return `DeckRevealReturn:${playerKey}`;
@@ -721,6 +836,9 @@ function animationPhaseCardDurationMs(key: string): number {
   if (key.startsWith('DeckReveal:')) {
     return actionAnimationTiming.deckRevealMs;
   }
+  if (key.startsWith('DeckSearchReveal:')) {
+    return actionAnimationTiming.deckRevealMs;
+  }
   if (key.startsWith('DeckRevealReturn:')) {
     return actionAnimationTiming.deckRevealReturnMs;
   }
@@ -735,6 +853,9 @@ function animationPhaseStepMs(key: string): number {
     return actionAnimationTiming.deckDiscardStepMs;
   }
   if (key.startsWith('DeckReveal:')) {
+    return actionAnimationTiming.deckRevealStepMs;
+  }
+  if (key.startsWith('DeckSearchReveal:')) {
     return actionAnimationTiming.deckRevealStepMs;
   }
   if (key.startsWith('DeckRevealReturn:')) {
