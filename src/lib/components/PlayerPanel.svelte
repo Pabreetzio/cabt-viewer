@@ -44,7 +44,7 @@
     top: calc(100vh - var(--board-bottom-inset) + var(--hand-board-gap) - var(--hand-hover-clearance));
     left: var(--table-side-gap);
     right: var(--player-panel-right);
-    bottom: 8px;
+    bottom: calc(var(--replay-dock-h, 0px) + 8px);
     align-items: start;
   }
 </style>
