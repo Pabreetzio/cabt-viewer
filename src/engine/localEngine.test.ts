@@ -429,6 +429,35 @@ describe('LocalEngineController', () => {
     if (!response.ok) return;
     expect(response.sequence).toHaveLength(5);
   });
+
+  it('rejects stale CABT prompt resolutions', async () => {
+    const engine = new LocalEngineController() as any;
+    engine.sessionId = 'test-session';
+    engine.dataMaps = { cardData: {}, attacks: {} };
+    engine.observation = {
+      select: {
+        type: 9,
+        context: CabtSelectContext.ACTIVATE,
+        minCount: 1,
+        maxCount: 1,
+        remainDamageCounter: 0,
+        remainEnergyCost: 0,
+        option: [{ type: CabtOptionType.YES }, { type: CabtOptionType.NO }],
+        deck: null,
+        contextCard: null,
+        effect: null,
+      },
+      logs: [],
+      current: currentState(),
+    };
+    engine.bridge = {
+      request: async () => {
+        throw new Error('stale prompt should not reach the bridge');
+      },
+    };
+
+    expect(() => engine.assertPromptId(123456)).toThrow('That prompt is no longer current.');
+  });
 });
 
 function currentState(overrides: Record<string, unknown> = {}) {

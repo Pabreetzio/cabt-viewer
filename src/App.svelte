@@ -112,6 +112,7 @@
   let commandApi = $derived<GameCommandApi>(localGameApi);
   let resolvingPrompt = $derived(gameStore.resolvingPrompt);
   let playingSequence = $derived(gameStore.playingSequence);
+  let commandBusy = $derived(sessionBusy || resolvingPrompt || playingSequence);
   let selectedHand = $derived(selectionStore.selectedHand);
   let draggingHand = $derived(selectionStore.draggingHand);
   let focusedSlot = $derived(selectionStore.focusedSlot);
@@ -396,7 +397,7 @@
       )
     : []);
   let canPlayOnBoard = $derived(
-    !!bottomPlayer &&
+    !commandBusy && !!bottomPlayer &&
     canPlayCardToBoardArea({
       selected: selectedCard,
       selectedPlayerIndex: selectedHand?.playerIndex,
@@ -567,10 +568,13 @@
   }
 
   async function playToTarget(target: CardTarget) {
-    if (!selectedHand || !game || !canAct(selectedHand.playerIndex)) {
+    const handSelection = selectedHand;
+    if (!handSelection || !game || !canAct(handSelection.playerIndex)) {
       return;
     }
-    await gameSessionStore.run(() => commandApi.playCard(selectedHand!.playerIndex, selectedHand!.handIndex, target));
+    selectionStore.setSelectedHand(null);
+    selectionStore.clearDragging();
+    await gameSessionStore.run(() => commandApi.playCard(handSelection.playerIndex, handSelection.handIndex, target));
   }
 
   function playToSlot(slot: PokemonSlotView) {
@@ -870,6 +874,9 @@
   }
 
   function canAct(playerIndex: number) {
+    if (commandBusy) {
+      return false;
+    }
     if (replayMode) {
       return false;
     }

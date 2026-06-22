@@ -676,7 +676,7 @@ function isCardSelectionPrompt(observation: CabtObservation) {
   return select.option.some((option, optionIndex) => option.type === CabtOptionType.CARD || !!cardForOption(option, observation, optionIndex));
 }
 
-function promptIdForSelect(select: NonNullable<CabtObservation['select']>) {
+export function promptIdForSelect(select: NonNullable<CabtObservation['select']>) {
   return hashPromptKey(JSON.stringify({
     context: select.context,
     type: select.type,
