@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CABT: Engine",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:engine",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "CABT: Web",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:web",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "CABT: Engine + Web",
+      "configurations": [
+        "CABT: Engine",
+        "CABT: Web"
+      ],
+      "stopAll": true
+    }
+  ]
+}
