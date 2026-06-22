@@ -141,13 +141,16 @@ export class LocalEngineController {
     }
 
     try {
-      if (command.type !== 'startGame') {
+      if (command.type !== 'startGame' && command.type !== 'state') {
         this.assertSession(command.payload);
       }
       switch (command.type) {
         case 'startGame':
           return await this.start(command.payload);
         case 'state':
+          if (!this.sessionId) {
+            throw new Error('No active CABT session. Start a new game.');
+          }
           return this.viewResponse();
         case 'playCard':
           return await this.selectMatchingOption((option) => this.matchesPlayCardOption(option, command.payload));

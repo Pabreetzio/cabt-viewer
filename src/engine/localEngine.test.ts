@@ -92,6 +92,29 @@ describe('LocalEngineController', () => {
     expect(bridgePayload?.agentPaths).toEqual([undefined, 'public/agents/mega-lucario-ex/main.py']);
   });
 
+  it('allows state requests to reattach to an active session without an id', async () => {
+    const previousMode = process.env.CABT_ENGINE_MODE;
+    process.env.CABT_ENGINE_MODE = 'native';
+    try {
+      const engine = new LocalEngineController() as any;
+      engine.sessionId = 'test-session';
+      engine.observation = {
+        select: null,
+        logs: [],
+        current: currentState(),
+      };
+
+      const response = await engine.handle({ type: 'state' });
+
+      expect(response.ok).toBe(true);
+      if (response.ok) {
+        expect(response.sessionId).toBe('test-session');
+      }
+    } finally {
+      process.env.CABT_ENGINE_MODE = previousMode;
+    }
+  });
+
   it('matches real CABT main-phase hand options with omitted source fields', () => {
     const engine = new LocalEngineController() as any;
     const payload = {

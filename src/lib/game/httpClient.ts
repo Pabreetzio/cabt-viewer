@@ -24,9 +24,14 @@ export type SaveReplayResponse = {
   error?: string;
 };
 
-let currentSessionId = '';
+const SESSION_STORAGE_KEY = 'cabt.localSessionId';
+
+let currentSessionId = readStoredSessionId();
 
 async function send(command: Command): Promise<EngineResponse> {
+  if (command.type !== 'startGame' && command.type !== 'state' && !currentSessionId) {
+    await recoverSessionId();
+  }
   const commandWithSession = command.type === 'startGame' || !currentSessionId
     ? command
     : {
@@ -45,11 +50,44 @@ async function send(command: Command): Promise<EngineResponse> {
   });
   const body = await response.json() as EngineResponse;
   if (body.ok && body.sessionId) {
-    currentSessionId = body.sessionId;
-  } else if (!body.ok && body.error.includes('session')) {
-    currentSessionId = '';
+    setCurrentSessionId(body.sessionId);
+  } else if (!body.ok && body.error?.includes('session')) {
+    setCurrentSessionId('');
   }
   return body;
+}
+
+async function recoverSessionId(): Promise<void> {
+  const response = await fetch('/local-engine', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ type: 'state' }),
+  });
+  const body = await response.json() as EngineResponse;
+  if (body.ok && body.sessionId) {
+    setCurrentSessionId(body.sessionId);
+  }
+}
+
+function setCurrentSessionId(sessionId: string): void {
+  currentSessionId = sessionId;
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (sessionId) {
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+  } else {
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+}
+
+function readStoredSessionId(): string {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return window.sessionStorage.getItem(SESSION_STORAGE_KEY) ?? '';
 }
 
 export function hostedAvailableActionsScope(command: Command): AvailableActionsScope | undefined {
