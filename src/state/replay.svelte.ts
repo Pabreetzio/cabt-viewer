@@ -50,6 +50,31 @@ class ReplayStore {
     }
   }
 
+  async loadLocalEngineReplay(id: string): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    this.pause();
+    this.loading = true;
+    this.error = '';
+    this.copiedForkPoint = false;
+    try {
+      const response = await fetch(`/local-engine/replays/${encodePath(id)}`);
+      const body = await response.json();
+      if (!response.ok || !body?.ok || !body.replay) {
+        throw new Error(body?.error ?? `Unable to load replay: ${response.status}`);
+      }
+      this.replay = body.replay;
+      this.stepIndex = 0;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      this.replay = null;
+      this.stepIndex = 0;
+    } finally {
+      this.loading = false;
+    }
+  }
+
   clear(): void {
     this.pause();
     this.replay = null;

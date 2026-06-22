@@ -538,6 +538,10 @@
     viewSettingsStore.resetView();
     activePlayerControls = ['self', 'self'];
     homeMode = 'logs';
+    if (log.source === 'local-engine') {
+      await replayStore.loadLocalEngineReplay(log.id);
+      return;
+    }
     await replayStore.loadSaved(log.file || log.id);
   }
 

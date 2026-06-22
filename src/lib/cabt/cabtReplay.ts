@@ -90,6 +90,13 @@ type KaggleContext = {
       EpisodeId?: string | number;
     };
   };
+  id?: string;
+  title?: string;
+  steps?: Array<Array<{ action?: unknown; observation?: Record<string, unknown>; status?: string; reward?: number; visualize?: unknown }>>;
+  info?: {
+    TeamNames?: string[];
+    EpisodeId?: string | number;
+  };
 };
 
 type CabtRunnerJson = {
@@ -106,7 +113,7 @@ export function cabtReplayToSnapshot(input: unknown): ReplaySnapshot {
     throw new Error('CABT replay did not include visualize frames.');
   }
 
-  const environment = (input as KaggleContext)?.environment;
+  const environment = replayEnvironment(input);
   const players = playerNames(input);
   const views: GameView[] = [];
   const steps: ReplayStep[] = [];
@@ -160,7 +167,7 @@ function extractVisualizeFrames(input: unknown): CabtVisualizeFrame[] {
     return runnerFrames as CabtVisualizeFrame[];
   }
 
-  const steps = (input as KaggleContext)?.environment?.steps;
+  const steps = replayEnvironment(input)?.steps;
   const frames = steps?.[0]?.[0]?.observation?.visualize;
   if (Array.isArray(frames)) {
     return frames as CabtVisualizeFrame[];
@@ -180,6 +187,11 @@ function extractVisualizeFrames(input: unknown): CabtVisualizeFrame[] {
   }
 
   return [];
+}
+
+function replayEnvironment(input: unknown): NonNullable<KaggleContext['environment']> | KaggleContext {
+  const context = input as KaggleContext;
+  return context.environment ?? context;
 }
 
 function frameToGameView(frame: CabtVisualizeFrame, playerNamesForReplay: string[], logs: LogView[]): GameView {
@@ -311,7 +323,7 @@ function faceDownCard(): CardView {
 }
 
 function playerNames(input: unknown): string[] {
-  const names = (input as KaggleContext)?.environment?.info?.TeamNames;
+  const names = replayEnvironment(input)?.info?.TeamNames;
   return names?.length ? names : ['Player 1', 'Player 2'];
 }
 

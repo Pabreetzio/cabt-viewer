@@ -4,6 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { CabtDemoController, cabtCardToView, cabtObservationToGameView, type CabtDataMaps } from '../lib/cabt/demoEngine';
+import { cabtReplayToSnapshot } from '../lib/cabt/cabtReplay';
 import { cabtLogsToTimeline } from '../lib/cabt/logFormat';
 import {
   CabtAreaType,
@@ -54,6 +55,32 @@ type SaveReplayResponse = {
   ok: boolean;
   file?: string;
   id?: string;
+  error?: string;
+};
+
+type ReplayListResponse = {
+  ok: boolean;
+  directory?: string;
+  replays: Array<{
+    id: string;
+    name: string;
+    file: string;
+    createdAt?: string;
+    players?: string[];
+    description?: string;
+  }>;
+  error?: string;
+};
+
+type AgentListResponse = {
+  ok: boolean;
+  directory?: string;
+  agents: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    deckUrl?: string;
+  }>;
   error?: string;
 };
 
@@ -149,15 +176,70 @@ export class LocalEngineController {
     }
   }
 
-  listReplays() {
-    return {
-      ok: true,
-      replays: [],
-    };
+  listReplays(): ReplayListResponse {
+    const directory = replayDirectory();
+    if (!directory) {
+      return { ok: true, replays: [] };
+    }
+    if (!fs.existsSync(directory)) {
+      return { ok: false, directory, replays: [], error: `CABT_REPLAY_DIR does not exist: ${directory}` };
+    }
+    if (!fs.statSync(directory).isDirectory()) {
+      return { ok: false, directory, replays: [], error: `CABT_REPLAY_DIR is not a directory: ${directory}` };
+    }
+
+    const replays = replayFiles(directory).map((file) => replayEntryForFile(directory, file));
+    replays.sort((left, right) => String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? '')));
+    return { ok: true, directory, replays };
   }
 
-  loadReplay(_id?: string): ReplayLoadResponse {
-    return { ok: false, error: 'Replay loading is not wired for the CABT adapter yet.' };
+  listAgents(): AgentListResponse {
+    const directory = agentDirectory();
+    if (!directory) {
+      return { ok: true, agents: [] };
+    }
+    if (!fs.existsSync(directory)) {
+      return { ok: false, directory, agents: [], error: `CABT_SAMPLE_SUBMISSION_DIR does not exist: ${directory}` };
+    }
+    if (!fs.statSync(directory).isDirectory()) {
+      return { ok: false, directory, agents: [], error: `CABT_SAMPLE_SUBMISSION_DIR is not a directory: ${directory}` };
+    }
+
+    const agents = localAgentDirectories(directory).map((agentDir) => {
+      const relative = toPosixPath(path.relative(directory, agentDir)) || '.';
+      const id = localAgentId(relative);
+      return {
+        id,
+        name: `Local ${localAgentName(relative)}`,
+        description: `Agent from ${path.join(directory, relative === '.' ? '' : relative)}.`,
+        deckUrl: `/local-engine/agents/${encodePath(id)}/deck`,
+      };
+    });
+    agents.sort((left, right) => left.name.localeCompare(right.name));
+    return { ok: true, directory, agents };
+  }
+
+  loadAgentDeck(id: string): { ok: boolean; deck?: string; error?: string } {
+    try {
+      const agentDir = localAgentDirectoryForId(id);
+      const deckPath = path.join(agentDir, 'deck.csv');
+      if (!fs.existsSync(deckPath)) {
+        throw new Error(`Agent does not include deck.csv: ${id}`);
+      }
+      return { ok: true, deck: fs.readFileSync(deckPath, 'utf8') };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  loadReplay(id?: string): ReplayLoadResponse {
+    try {
+      const file = replayPathForId(id);
+      const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return { ok: true, replay: cabtReplayToSnapshot(json) };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   loadReplayData(_replayData?: string, _name?: string): ReplayLoadResponse {
@@ -722,6 +804,14 @@ class CabtBridgeClient {
         this.stderr = this.stderr.slice(-12000);
       }
     });
+    child.on('error', (error) => {
+      if (this.child !== child || this.generation !== generation) {
+        return;
+      }
+      this.rejectPending(error);
+      this.child = null;
+      this.onExit();
+    });
     child.on('exit', (code, signal) => {
       if (this.child !== child || this.generation !== generation) {
         return;
@@ -837,6 +927,151 @@ function readGameLogManifest(): { logs: unknown[] } {
   }
 }
 
+function replayDirectory(): string {
+  const configured = process.env.CABT_REPLAY_DIR?.trim();
+  return configured ? path.resolve(configured) : '';
+}
+
+function replayFiles(directory: string): string[] {
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...replayFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function replayEntryForFile(directory: string, file: string): ReplayListResponse['replays'][number] {
+  const relativePath = toPosixPath(path.relative(directory, file));
+  const stats = fs.statSync(file);
+  const fallbackName = replayNameFromFile(relativePath);
+  try {
+    const json = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+      environment?: {
+        id?: string | number;
+        title?: string;
+        info?: {
+          TeamNames?: string[];
+        };
+      };
+    };
+    return {
+      id: relativePath,
+      name: json.environment?.title ?? fallbackName,
+      file: relativePath,
+      createdAt: stats.mtime.toISOString(),
+      players: Array.isArray(json.environment?.info?.TeamNames) ? json.environment.info.TeamNames : undefined,
+      description: `Replay from ${process.env.CABT_REPLAY_DIR}.`,
+    };
+  } catch {
+    return {
+      id: relativePath,
+      name: fallbackName,
+      file: relativePath,
+      createdAt: stats.mtime.toISOString(),
+      description: `Replay from ${process.env.CABT_REPLAY_DIR}.`,
+    };
+  }
+}
+
+function replayNameFromFile(file: string): string {
+  return path.basename(file, path.extname(file)).replace(/[-_]+/g, ' ');
+}
+
+function replayPathForId(id: string | undefined): string {
+  if (!id) {
+    throw new Error('Replay id is required.');
+  }
+  const directory = replayDirectory();
+  if (!directory) {
+    throw new Error('CABT_REPLAY_DIR is not set.');
+  }
+  const normalizedId = id.replace(/\\/g, '/');
+  const resolved = path.resolve(directory, normalizedId);
+  const root = path.resolve(directory);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error('Replay path must stay inside CABT_REPLAY_DIR.');
+  }
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    throw new Error(`Replay not found: ${normalizedId}`);
+  }
+  if (path.extname(resolved).toLowerCase() !== '.json') {
+    throw new Error('Replay must be a JSON file.');
+  }
+  return resolved;
+}
+
+function sampleSubmissionDirectory(): string {
+  const configured = process.env.CABT_SAMPLE_SUBMISSION_DIR?.trim();
+  return configured ? path.resolve(configured) : '';
+}
+
+function agentDirectory(): string {
+  const configured = process.env.CABT_AGENT_DIR?.trim() || process.env.CABT_SAMPLE_SUBMISSION_DIR?.trim();
+  return configured ? path.resolve(configured) : '';
+}
+
+function localAgentDirectories(directory: string): string[] {
+  const found: string[] = [];
+  collectLocalAgentDirectories(directory, found);
+  return found;
+}
+
+function collectLocalAgentDirectories(directory: string, found: string[]): void {
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+  const hasMain = entries.some((entry) => entry.isFile() && entry.name === 'main.py');
+  const hasDeck = entries.some((entry) => entry.isFile() && entry.name === 'deck.csv');
+  if (hasMain && hasDeck) {
+    found.push(directory);
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name !== 'cg' && entry.name !== '__pycache__') {
+      collectLocalAgentDirectories(path.join(directory, entry.name), found);
+    }
+  }
+}
+
+function localAgentId(relativePath: string): string {
+  return `local:${relativePath}`;
+}
+
+function localAgentName(relativePath: string): string {
+  const name = relativePath === '.' ? path.basename(agentDirectory()) : path.basename(relativePath);
+  return name.replace(/[-_]+/g, ' ');
+}
+
+function localAgentDirectoryForId(id: string): string {
+  if (!id.startsWith('local:')) {
+    throw new Error(`Not a local agent id: ${id}`);
+  }
+  const directory = agentDirectory();
+  if (!directory) {
+    throw new Error('CABT_AGENT_DIR is not set.');
+  }
+  const relativePath = id.slice('local:'.length).replace(/\\/g, '/');
+  const resolved = path.resolve(directory, relativePath === '.' ? '' : relativePath);
+  const root = path.resolve(directory);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error('Agent path must stay inside CABT_SAMPLE_SUBMISSION_DIR.');
+  }
+  if (!fs.existsSync(path.join(resolved, 'main.py'))) {
+    throw new Error(`Agent main.py not found: ${id}`);
+  }
+  return resolved;
+}
+
+function encodePath(value: string): string {
+  return value.split('/').map((part) => encodeURIComponent(part)).join('/');
+}
+
 function resolveDeck(cards: unknown[], label: string): number[] {
   const ids = cards.map((card, index) => resolveCardId(card, `${label} card ${index + 1}`));
   if (ids.length !== 60) {
@@ -908,6 +1143,9 @@ function normalizeCardName(name: string): string {
 function agentPathForId(agentId: string | undefined): string | undefined {
   if (!agentId) {
     return undefined;
+  }
+  if (agentId.startsWith('local:')) {
+    return path.join(localAgentDirectoryForId(agentId), 'main.py');
   }
   const manifestPath = path.join(FRONTEND_ROOT, 'public', 'agents', 'agents.json');
   if (!fs.existsSync(manifestPath)) {

@@ -37,6 +37,21 @@ also pass a replay URL:
 http://localhost:5173/?view=replay&replayUrl=https://example.com/cabt-replay.json
 ```
 
+To include local replay files from another folder in the Game logs list, set
+`CABT_REPLAY_DIR` in a local `.env` file and run the full dev server:
+
+```env
+CABT_REPLAY_DIR=C:\Projects\remorai\arena\replays
+```
+
+```bash
+npm run dev
+```
+
+The local engine server scans `.json` files in that folder recursively and adds
+them to the replay dropdown. `npm run dev:web` only starts Vite, so it can show
+the committed `public/game-logs` fixtures but not arbitrary local folders.
+
 Replay viewing does not require Python, Docker, Kaggle native libraries, or a
 local agent.
 
@@ -77,6 +92,11 @@ The opponent selector includes:
 
 Deck-backed sample agents load their bundled `deck.csv` into the opponent deck
 box and make it read-only so the agent and deck stay paired.
+
+To add local agent build folders to the Play tab, set `CABT_AGENT_DIR` in a
+local `.env` file. If it is omitted, the bridge also scans
+`CABT_SAMPLE_SUBMISSION_DIR` for folders that contain both `main.py` and
+`deck.csv`.
 
 On Linux, the bridge uses your local Python. On macOS, it starts Docker with
 `--platform linux/amd64` and mounts `CABT_SAMPLE_SUBMISSION_DIR` read-only into

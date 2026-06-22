@@ -1,9 +1,43 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { LocalEngineController } from './localEngine';
+
+loadDotEnv();
 
 const port = Number(process.env.LOCAL_ENGINE_PORT ?? 8095);
 const host = process.env.LOCAL_ENGINE_HOST ?? '127.0.0.1';
 const controller = new LocalEngineController();
+
+function loadDotEnv(): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const separator = trimmed.indexOf('=');
+    if (separator <= 0) {
+      continue;
+    }
+    const key = trimmed.slice(0, separator).trim();
+    const value = unquoteEnvValue(trimmed.slice(separator + 1).trim());
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
+function unquoteEnvValue(value: string): string {
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -40,6 +74,27 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/local-engine/replays') {
     writeJson(res, 200, controller.listReplays());
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/local-engine/agents') {
+    writeJson(res, 200, controller.listAgents());
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/local-engine/agents/') && url.pathname.endsWith('/deck')) {
+    const id = decodeURIComponent(url.pathname.slice('/local-engine/agents/'.length, -'/deck'.length));
+    const response = controller.loadAgentDeck(id);
+    if (!response.ok) {
+      writeJson(res, 404, response);
+      return;
+    }
+    const deck = response.deck ?? '';
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Length': Buffer.byteLength(deck),
+    });
+    res.end(deck);
     return;
   }
 
