@@ -188,6 +188,11 @@
     font-weight: 700;
   }
 
+  .table-toolbar select option {
+    background: var(--input-option-bg);
+    color: var(--input-option-text);
+  }
+
   .inline-error {
     padding: 6px 8px;
     max-width: 100%;

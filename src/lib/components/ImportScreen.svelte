@@ -381,6 +381,11 @@
     padding: 0 12px;
   }
 
+  select option {
+    background: var(--input-option-bg);
+    color: var(--input-option-text);
+  }
+
   .log-toolbar strong {
     font-size: 16px;
   }

@@ -17,7 +17,8 @@ body.prompt-gallery-page {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
