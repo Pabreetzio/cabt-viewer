@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LocalEngineController } from './localEngine';
+import path from 'node:path';
+import { bridgeAgentPathForRuntime, LocalEngineController } from './localEngine';
 import { SlotType, targetFor } from '../lib/game/types';
 import { CabtAreaType, CabtLogType, CabtOptionType, CabtSelectContext } from '../lib/cabt/types';
 
@@ -110,6 +111,21 @@ describe('LocalEngineController', () => {
       if (response.ok) {
         expect(response.sessionId).toBe('test-session');
       }
+    } finally {
+      process.env.CABT_ENGINE_MODE = previousMode;
+    }
+  });
+
+  it('maps absolute workspace agent paths into the Docker workspace mount', () => {
+    const previousMode = process.env.CABT_ENGINE_MODE;
+    process.env.CABT_ENGINE_MODE = 'demo';
+    try {
+      const localPath = path.resolve('..', 'remorai', 'submission', 'builds', 'baseline', 'main.py');
+      const expected = process.platform === 'linux'
+        ? localPath
+        : '/workspace/remorai/submission/builds/baseline/main.py';
+
+      expect(bridgeAgentPathForRuntime(localPath)).toBe(expected);
     } finally {
       process.env.CABT_ENGINE_MODE = previousMode;
     }

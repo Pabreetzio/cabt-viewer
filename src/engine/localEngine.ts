@@ -298,7 +298,7 @@ export class LocalEngineController {
     const agentPaths = [
       playerControls[0] === 'agent' ? agentPathForId(payload?.player1?.agentId) : undefined,
       playerControls[1] === 'agent' ? agentPathForId(payload?.player2?.agentId) : undefined,
-    ];
+    ].map(bridgeAgentPathForRuntime);
     this.bridge.stop();
     this.sessionId = createSessionId();
     this.pendingRetreatTarget = null;
@@ -894,6 +894,23 @@ function bridgeProcessCommand(): { command: string; args: string[] } {
       dockerBridgePath,
     ],
   };
+}
+
+export function bridgeAgentPathForRuntime(agentPath: string | undefined): string | undefined {
+  if (!agentPath || !path.isAbsolute(agentPath) || process.env.CABT_ENGINE_MODE === 'native' || process.platform === 'linux') {
+    return agentPath;
+  }
+
+  const resolved = path.resolve(agentPath);
+  const workspaceRoot = path.resolve(WORKSPACE_ROOT);
+  if (resolved === workspaceRoot) {
+    return '/workspace';
+  }
+  if (!resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+    return agentPath;
+  }
+
+  return `/workspace/${toPosixPath(path.relative(workspaceRoot, resolved))}`;
 }
 
 function toPosixPath(value: string): string {
