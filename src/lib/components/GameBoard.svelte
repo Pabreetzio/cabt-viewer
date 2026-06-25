@@ -289,10 +289,12 @@
 
 <style>
   .playmat {
+    --board-top-row-align: start;
+    --board-bottom-row-align: end;
     --active-preferred-w: calc(var(--board-card-w) * 1.48);
     --active-fit-w: max(
       calc(var(--board-card-w) * 1.15),
-      calc((var(--board-h) - (var(--bench-row-h) * 2) - (var(--board-row-gap) * 2) - var(--active-gap)) / 2.794)
+      calc((var(--board-grid-h) - (var(--bench-row-h) * 2) - (var(--board-row-gap) * 2) - var(--active-gap)) / 2.794)
     );
     --active-w: min(var(--active-preferred-w), var(--active-fit-w));
     --active-h: calc(var(--active-w) * 1.397);
@@ -394,9 +396,4 @@
     box-shadow: var(--board-play-shadow);
   }
 
-  @media (max-width: 980px) {
-    .game-board-plane {
-      padding-inline: 12px;
-    }
-  }
 </style>

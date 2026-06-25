@@ -16,7 +16,18 @@
 
 <style>
   .table-shell {
-    --board-card-w: clamp(58px, min(8vw, 8.1vh), 104px);
+    --opponent-hand-height: clamp(58px, 7.2vh, 84px);
+    --replay-dock-h: 0px;
+    --hand-board-gap: 0px;
+    --board-bottom-hand-clearance: 14px;
+    --board-fit-safety-y: 10px;
+    /*
+      Vertical fit budget in board-card-width units:
+      bottom hand area, board padding, bench rows, row gaps, and the active slots
+      at their minimum readable board size.
+    */
+    --board-fit-card-w: calc((100vh - var(--opponent-hand-height) - var(--hand-board-gap) - var(--board-bottom-hand-clearance) - var(--replay-dock-h) - var(--board-fit-safety-y)) / 10.11);
+    --board-card-w: clamp(44px, min(8vw, 8.1vh, var(--board-fit-card-w)), 104px);
     --card-w: var(--board-card-w);
     --hand-card-w: min(clamp(96px, min(7.8vw, 14.5vh), 150px), calc(var(--board-card-w) * 1.55));
     --min-table-width: 760px;
@@ -24,14 +35,11 @@
     --active-gap: calc(var(--board-card-w) * 0.24);
     --bench-card-w: calc(var(--board-card-w) * 1.24);
     --bench-row-h: calc(var(--bench-card-w) * 1.42);
-    --opponent-hand-height: clamp(58px, 7.2vh, 84px);
-    --replay-dock-h: 0px;
-    --hand-board-gap: 0px;
     --board-top-inset: calc(var(--opponent-hand-height) + var(--hand-board-gap));
     --hand-hover-pad: calc(var(--board-card-w) * 0.065);
     --hand-hover-clearance: calc(var(--hand-hover-pad) + 12px);
     --hand-shadow-clearance: calc(var(--hand-hover-pad) + 14px);
-    --board-bottom-inset: calc((var(--hand-card-w) * 1.397) + (var(--hand-hover-pad) * 2.5) + 14px + var(--replay-dock-h));
+    --board-bottom-inset: calc((var(--hand-card-w) * 1.397) + (var(--hand-hover-pad) * 2.5) + var(--board-bottom-hand-clearance) + var(--replay-dock-h));
     --board-right-rail: 150px;
     --table-side-gap: 14px;
     --player-panel-right: calc(var(--board-right-rail) + 8px);
@@ -41,9 +49,9 @@
     --board-content-pad: calc(var(--board-card-w) * 0.18);
     --board-edge-pad-x: var(--board-edge-pad);
     --board-content-inset-y: calc(var(--board-outline-pad-y) + var(--board-content-pad));
-    --board-content-inset-bottom: calc(var(--board-content-inset-y) + (var(--board-card-w) * 0.22));
+    --board-content-inset-bottom: var(--board-content-inset-y);
     --board-content-inset-x: calc(var(--board-edge-pad-x) + var(--board-content-pad));
-    --board-bottom-pile-clearance: calc(var(--board-card-w) * 0.18);
+    --board-grid-h: calc(var(--board-h) - var(--board-content-inset-y) - var(--board-content-inset-bottom));
     width: max(100vw, var(--min-table-width));
     min-width: var(--min-table-width);
     min-height: 100vh;

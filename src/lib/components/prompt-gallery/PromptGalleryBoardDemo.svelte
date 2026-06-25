@@ -395,7 +395,9 @@
     --board-content-pad: calc(var(--board-card-w) * 0.18);
     --board-edge-pad-x: var(--board-edge-pad);
     --board-content-inset-y: calc(var(--board-outline-pad-y) + var(--board-content-pad));
+    --board-content-inset-bottom: var(--board-content-inset-y);
     --board-content-inset-x: calc(var(--board-edge-pad-x) + var(--board-content-pad));
+    --board-grid-h: calc(var(--board-h) - var(--board-content-inset-y) - var(--board-content-inset-bottom));
     position: relative;
     min-height: calc(var(--board-top-inset) + var(--board-h) + var(--board-bottom-inset));
     overflow: hidden;

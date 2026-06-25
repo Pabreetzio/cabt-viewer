@@ -285,7 +285,7 @@
 
   .top-piles .left-piles {
     grid-area: top-right;
-    align-self: start;
+    align-self: var(--board-top-row-align, start);
     justify-self: end;
     display: flex;
     flex-direction: column-reverse;
@@ -300,23 +300,21 @@
 
   .top-piles .right-field {
     grid-area: top-left;
-    align-self: start;
+    align-self: var(--board-top-row-align, start);
     justify-self: start;
   }
 
   .bottom-piles .left-piles {
     grid-area: bottom-left;
-    align-self: end;
+    align-self: var(--board-bottom-row-align, end);
     justify-self: start;
     justify-items: center;
-    margin-bottom: var(--board-bottom-pile-clearance, 0px);
   }
 
   .bottom-piles .right-field {
     grid-area: bottom-right;
-    align-self: end;
+    align-self: var(--board-bottom-row-align, end);
     justify-self: end;
-    margin-bottom: var(--board-bottom-pile-clearance, 0px);
   }
 
   .right-field {

@@ -131,7 +131,6 @@
   .active-duel :global(.bottom-active-slot) {
     position: relative;
     z-index: 4;
-    transform: translateZ(32px);
     pointer-events: auto;
   }
 
@@ -158,11 +157,5 @@
 
   .active-duel :global(.top-active-slot .damage-counter-value) {
     transform: rotate(180deg);
-  }
-
-  @media (max-width: 980px) {
-    .active-duel {
-      grid-template-rows: var(--active-w) minmax(58px, auto) var(--active-w);
-    }
   }
 </style>

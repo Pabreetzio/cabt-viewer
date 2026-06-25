@@ -108,7 +108,7 @@
   .bench-zone {
     position: relative;
     grid-area: bottom-bench;
-    align-self: end;
+    align-self: var(--board-bottom-row-align, end);
     z-index: 1;
     transform-style: preserve-3d;
     display: grid;
@@ -126,7 +126,7 @@
 
   .bench-zone.opponent {
     grid-area: top-bench;
-    align-self: end;
+    align-self: var(--board-top-row-align, start);
     align-content: center;
   }
 
@@ -173,7 +173,6 @@
   .bench-row {
     position: relative;
     z-index: 2;
-    transform: translateZ(16px);
     display: flex;
     justify-content: center;
     align-items: center;
